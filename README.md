@@ -16,9 +16,13 @@ curl -fSL https://raw.githubusercontent.com/HughRyu/scripts/refs/heads/main/triv
 Plaintext
 
 /root/trivy/
-├── cache/                            # 数据库缓存 (复用，不用每次下载)
+
+├── cache/                           # 数据库缓存 (复用，不用每次下载)
+
 ├── scan_result_<主机名>.txt          # [全量报告] 包含所有技术细节
+
 └── risky_images_<主机名>.txt         # [推荐] 风险黑名单 (只列出有问题的高危镜像)
+
 🚀 一键执行 (推荐)
 无需下载脚本文件，直接复制以下命令执行即可（已配置国内加速）：
 
