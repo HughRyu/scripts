@@ -3,69 +3,43 @@
 # ==========================================
 # Configuration
 # ==========================================
-
-# Base directory
 WORK_DIR="$HOME/trivy"
 CACHE_DIR="$WORK_DIR/cache"
 OUTPUT_FILE="$WORK_DIR/scan_result.txt"
 
-# Mirror List (Added generic ghproxy as backup)
-MIRRORS=(
-    "https://ghproxy.net/https://github.com/aquasecurity/trivy-db/releases/latest/download/trivy-db.tar.gz"
-    "https://gh.llkk.cc/https://github.com/aquasecurity/trivy-db/releases/latest/download/trivy-db.tar.gz"
-    "https://github.moeyy.xyz/https://github.com/aquasecurity/trivy-db/releases/latest/download/trivy-db.tar.gz"
-)
+# [CRITICAL FIX]
+# GitHub Releases are deprecated. We MUST use OCI registry.
+# Using Huawei Cloud Mirror (DDN) to accelerate ghcr.io
+# This mimics ghcr.io/aquasecurity/trivy-db but via China Network
+DB_REPO="swr.cn-north-4.myhuaweicloud.com/ddn-k8s/ghcr.io/aquasecurity/trivy-db"
 
 # ==========================================
 # 1. Preparation
 # ==========================================
 echo "🚀 Starting security scan..."
-mkdir -p "$CACHE_DIR/db"
+mkdir -p "$CACHE_DIR"
 
 echo "Scan Report - $(date)" > "$OUTPUT_FILE"
 echo "📂 Working Directory: $WORK_DIR"
 
 # ==========================================
-# 2. Smart DB Download (Using curl)
+# 2. Update DB (Via Docker + China Mirror)
 # ==========================================
-echo "📥 Downloading DB tarball..."
+echo "📥 Updating DB using Huawei Mirror..."
 
-DOWNLOAD_SUCCESS=false
+# We use docker to pull the DB because wget is no longer supported for v2 DB.
+docker run --rm \
+    -v "$CACHE_DIR":/root/.cache/trivy \
+    aquasec/trivy:latest image \
+    --download-db-only \
+    --db-repository "$DB_REPO"
 
-for url in "${MIRRORS[@]}"; do
-    echo "Trying mirror: $url ..."
-    
-    # Switched to curl (since it worked for you)
-    # -L: Follow redirects
-    # -k: Skip SSL check
-    # --connect-timeout 60: Increased timeout
-    # --retry 2: Retry twice on failure
-    curl -L -k --connect-timeout 60 --retry 2 -o "$WORK_DIR/db_temp.tar.gz" "$url"
-    
-    if [ $? -eq 0 ]; then
-        # Check if file is valid (not empty)
-        if [ -s "$WORK_DIR/db_temp.tar.gz" ]; then
-            echo "✅ Download successful using: $url"
-            DOWNLOAD_SUCCESS=true
-            break
-        else
-             echo "⚠️ File is empty. Mirror failed."
-        fi
-    else
-        echo "⚠️ Connection failed or timed out. Switching to next..."
-    fi
-done
-
-if [ "$DOWNLOAD_SUCCESS" = false ]; then
-    echo "❌ All mirrors failed. Network is too unstable."
-    exit 1
+if [ $? -ne 0 ]; then
+    echo "❌ DB update failed. Huawei mirror might be busy."
+    echo "👉 Attempting to scan with existing cache (if any)..."
+else
+    echo "✅ DB updated successfully."
 fi
-
-echo "📦 Extracting DB..."
-tar -xzf "$WORK_DIR/db_temp.tar.gz" -C "$CACHE_DIR/db"
-rm "$WORK_DIR/db_temp.tar.gz"
-
-echo "✅ DB updated successfully."
 
 # ==========================================
 # 3. Batch Scan
@@ -80,11 +54,13 @@ for img in $(docker images -q); do
     echo "[$CURRENT/$TOTAL] Scanning ID: $img ..."
     echo -e "\n\n=== Target: $img ===" >> "$OUTPUT_FILE"
     
+    # Run scan pointing to the same mirror repo to avoid network checks
     docker run --rm \
         -v /var/run/docker.sock:/var/run/docker.sock \
         -v "$CACHE_DIR":/root/.cache/trivy \
         aquasec/trivy:latest image \
         --skip-db-update \
+        --db-repository "$DB_REPO" \
         --scanners vuln \
         --severity HIGH,CRITICAL \
         "$img" >> "$OUTPUT_FILE"
