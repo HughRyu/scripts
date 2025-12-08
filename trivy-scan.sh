@@ -3,62 +3,75 @@
 # ==========================================
 # Configuration
 # ==========================================
-CACHE_DIR=~/trivy-cache
-OUTPUT_FILE="scan_result.txt"
 
-# Public Mirror for Trivy DB (DaoCloud)
-# Eliminates the need for a proxy.
-DB_REPO="swr.cn-north-4.myhuaweicloud.com/ddn-k8s/ghcr.io/aquasecurity/trivy-db"
+# Base directory for all Trivy files
+# Resolves to /root/trivy if you are root
+WORK_DIR="$HOME/trivy"
+
+# Sub-directory for database cache
+CACHE_DIR="$WORK_DIR/cache"
+
+# Final report file path
+OUTPUT_FILE="$WORK_DIR/scan_result.txt"
+
+# Download URL for Trivy DB (via ghproxy)
+DB_URL="https://mirror.ghproxy.com/https://github.com/aquasecurity/trivy-db/releases/latest/download/trivy-db.tar.gz"
 
 # ==========================================
 # 1. Preparation
 # ==========================================
 echo "🚀 Starting security scan..."
-mkdir -p "$CACHE_DIR"
+
+# Create the specific directory structure Trivy expects
+# We need a 'db' folder inside our cache directory
+mkdir -p "$CACHE_DIR/db"
 
 # Reset output file
 echo "Scan Report - $(date)" > "$OUTPUT_FILE"
+echo "📂 Working Directory: $WORK_DIR"
+echo "📄 Report will be saved to: $OUTPUT_FILE"
 
 # ==========================================
-# 2. Update DB (via Mirror)
+# 2. Manual DB Download (Wget Method)
 # ==========================================
-echo "📥 Updating DB from mirror..."
+echo "📥 Downloading DB tarball..."
 
-docker run --rm \
-    -v "$CACHE_DIR":/root/.cache/trivy \
-    aquasec/trivy:latest image \
-    --download-db-only \
-    --db-repository "$DB_REPO"
+# Download to a temporary path inside WORK_DIR
+wget --no-check-certificate -q --show-progress -O "$WORK_DIR/db_temp.tar.gz" "$DB_URL"
 
-# Exit if DB update fails
 if [ $? -ne 0 ]; then
-    echo "❌ DB update failed. Check network."
+    echo "❌ Download failed. Check network."
     exit 1
 fi
+
+echo "📦 Extracting DB..."
+# Extract files into the 'db' folder
+tar -xzf "$WORK_DIR/db_temp.tar.gz" -C "$CACHE_DIR/db"
+
+# Cleanup the compressed file
+rm "$WORK_DIR/db_temp.tar.gz"
+
+echo "✅ DB updated successfully."
 
 # ==========================================
 # 3. Batch Scan (Offline Mode)
 # ==========================================
 echo "🔍 Scanning all local images..."
 
-# Get total count for progress bar
 TOTAL=$(docker images -q | wc -l)
 CURRENT=0
 
 for img in $(docker images -q); do
     ((CURRENT++))
     echo "[$CURRENT/$TOTAL] Scanning ID: $img ..."
-    
-    # Append separator to report
     echo -e "\n\n=== Target: $img ===" >> "$OUTPUT_FILE"
     
-    # Run Trivy (High/Critical only, Skip DB update)
+    # Map the host CACHE_DIR to the container's cache location
     docker run --rm \
         -v /var/run/docker.sock:/var/run/docker.sock \
         -v "$CACHE_DIR":/root/.cache/trivy \
         aquasec/trivy:latest image \
         --skip-db-update \
-        --db-repository "$DB_REPO" \
         --scanners vuln \
         --severity HIGH,CRITICAL \
         "$img" >> "$OUTPUT_FILE"
