@@ -8,7 +8,7 @@ OUTPUT_FILE="scan_result.txt"
 
 # Public Mirror for Trivy DB (DaoCloud)
 # Eliminates the need for a proxy.
-DB_REPO="ghcr.m.daocloud.io/aquasecurity/trivy-db"
+DB_REPOSITORY="ghcr.nju.edu.cn/aquasecurity/trivy-db"
 
 # ==========================================
 # 1. Preparation
