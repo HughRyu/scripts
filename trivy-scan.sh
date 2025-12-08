@@ -1,3 +1,4 @@
+cat > trivy.sh << 'EOF'
 #!/bin/bash
 
 # ==========================================
@@ -5,7 +6,10 @@
 # ==========================================
 WORK_DIR="$HOME/trivy"
 CACHE_DIR="$WORK_DIR/cache"
-OUTPUT_FILE="$WORK_DIR/scan_result.txt"
+
+# [NEW] Output filename now includes Hostname
+# Example: scan_result_ali.txt
+OUTPUT_FILE="$WORK_DIR/scan_result_$(hostname).txt"
 
 # OCI Mirror List for ghcr.io (Failover Strategy)
 # Docker will try these one by one to pull the DB.
@@ -19,11 +23,12 @@ OCI_MIRRORS=(
 # ==========================================
 # 1. Preparation
 # ==========================================
-echo "🚀 Starting security scan..."
+echo "🚀 Starting security scan on host: $(hostname)..."
 mkdir -p "$CACHE_DIR"
 
-echo "Scan Report - $(date)" > "$OUTPUT_FILE"
+echo "Scan Report - $(date) - Host: $(hostname)" > "$OUTPUT_FILE"
 echo "📂 Working Directory: $WORK_DIR"
+echo "📄 Report will be saved to: $OUTPUT_FILE"
 
 # ==========================================
 # 2. Smart DB Update (OCI Failover)
@@ -36,8 +41,7 @@ FINAL_REPO=""
 for repo in "${OCI_MIRRORS[@]}"; do
     echo "Trying OCI mirror: $repo ..."
     
-    # Try to download DB only using the current mirror
-    # We use 'timeout 60s' to prevent it from hanging on bad mirrors
+    # timeout 60s to prevent hanging
     timeout 60s docker run --rm \
         -v "$CACHE_DIR":/root/.cache/trivy \
         aquasec/trivy:latest image \
@@ -72,8 +76,7 @@ for img in $(docker images -q); do
     echo "[$CURRENT/$TOTAL] Scanning ID: $img ..."
     echo -e "\n\n=== Target: $img ===" >> "$OUTPUT_FILE"
     
-    # Important: We must use the SAME repository that worked
-    # Otherwise Trivy might try to verify the DB against default ghcr.io and fail
+    # Use the verified working repo
     docker run --rm \
         -v /var/run/docker.sock:/var/run/docker.sock \
         -v "$CACHE_DIR":/root/.cache/trivy \
@@ -86,3 +89,4 @@ for img in $(docker images -q); do
 done
 
 echo "✅ Scan complete! Check $OUTPUT_FILE"
+EOF
