@@ -7,11 +7,14 @@ WORK_DIR="$HOME/trivy"
 CACHE_DIR="$WORK_DIR/cache"
 OUTPUT_FILE="$WORK_DIR/scan_result.txt"
 
-# [CRITICAL FIX]
-# GitHub Releases are deprecated. We MUST use OCI registry.
-# Using Huawei Cloud Mirror (DDN) to accelerate ghcr.io
-# This mimics ghcr.io/aquasecurity/trivy-db but via China Network
-DB_REPO="swr.cn-north-4.myhuaweicloud.com/ddn-k8s/ghcr.io/aquasecurity/trivy-db"
+# OCI Mirror List for ghcr.io (Failover Strategy)
+# Docker will try these one by one to pull the DB.
+OCI_MIRRORS=(
+    "ghcr.m.daocloud.io/aquasecurity/trivy-db"
+    "ghcr.dockerproxy.com/aquasecurity/trivy-db"
+    "ghcr.nju.edu.cn/aquasecurity/trivy-db"
+    "ghcr.io/aquasecurity/trivy-db" 
+)
 
 # ==========================================
 # 1. Preparation
@@ -23,22 +26,37 @@ echo "Scan Report - $(date)" > "$OUTPUT_FILE"
 echo "📂 Working Directory: $WORK_DIR"
 
 # ==========================================
-# 2. Update DB (Via Docker + China Mirror)
+# 2. Smart DB Update (OCI Failover)
 # ==========================================
-echo "📥 Updating DB using Huawei Mirror..."
+echo "📥 Updating DB via OCI Mirrors..."
 
-# We use docker to pull the DB because wget is no longer supported for v2 DB.
-docker run --rm \
-    -v "$CACHE_DIR":/root/.cache/trivy \
-    aquasec/trivy:latest image \
-    --download-db-only \
-    --db-repository "$DB_REPO"
+UPDATE_SUCCESS=false
+FINAL_REPO=""
 
-if [ $? -ne 0 ]; then
-    echo "❌ DB update failed. Huawei mirror might be busy."
-    echo "👉 Attempting to scan with existing cache (if any)..."
-else
-    echo "✅ DB updated successfully."
+for repo in "${OCI_MIRRORS[@]}"; do
+    echo "Trying OCI mirror: $repo ..."
+    
+    # Try to download DB only using the current mirror
+    # We use 'timeout 60s' to prevent it from hanging on bad mirrors
+    timeout 60s docker run --rm \
+        -v "$CACHE_DIR":/root/.cache/trivy \
+        aquasec/trivy:latest image \
+        --download-db-only \
+        --db-repository "$repo"
+        
+    if [ $? -eq 0 ]; then
+        echo "✅ DB Update successful using: $repo"
+        UPDATE_SUCCESS=true
+        FINAL_REPO="$repo"
+        break
+    else
+        echo "⚠️ Mirror $repo failed or timed out. Switching..."
+    fi
+done
+
+if [ "$UPDATE_SUCCESS" = false ]; then
+    echo "❌ All OCI mirrors failed. Cannot proceed."
+    exit 1
 fi
 
 # ==========================================
@@ -54,13 +72,14 @@ for img in $(docker images -q); do
     echo "[$CURRENT/$TOTAL] Scanning ID: $img ..."
     echo -e "\n\n=== Target: $img ===" >> "$OUTPUT_FILE"
     
-    # Run scan pointing to the same mirror repo to avoid network checks
+    # Important: We must use the SAME repository that worked
+    # Otherwise Trivy might try to verify the DB against default ghcr.io and fail
     docker run --rm \
         -v /var/run/docker.sock:/var/run/docker.sock \
         -v "$CACHE_DIR":/root/.cache/trivy \
         aquasec/trivy:latest image \
         --skip-db-update \
-        --db-repository "$DB_REPO" \
+        --db-repository "$FINAL_REPO" \
         --scanners vuln \
         --severity HIGH,CRITICAL \
         "$img" >> "$OUTPUT_FILE"
