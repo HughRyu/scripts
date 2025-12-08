@@ -4,57 +4,64 @@
 # Configuration
 # ==========================================
 
-# Base directory for all Trivy files
-# Resolves to /root/trivy if you are root
+# Base directory
 WORK_DIR="$HOME/trivy"
-
-# Sub-directory for database cache
 CACHE_DIR="$WORK_DIR/cache"
-
-# Final report file path
 OUTPUT_FILE="$WORK_DIR/scan_result.txt"
 
-# Download URL for Trivy DB (via ghproxy)
-DB_URL="https://mirror.ghproxy.com/https://github.com/aquasecurity/trivy-db/releases/latest/download/trivy-db.tar.gz"
+# List of Mirrors (Failover Strategy)
+# If one fails, the script will automatically try the next one.
+MIRRORS=(
+    "https://gh.llkk.cc/https://github.com/aquasecurity/trivy-db/releases/latest/download/trivy-db.tar.gz"
+    "https://github.moeyy.xyz/https://github.com/aquasecurity/trivy-db/releases/latest/download/trivy-db.tar.gz"
+    "https://ghproxy.net/https://github.com/aquasecurity/trivy-db/releases/latest/download/trivy-db.tar.gz"
+)
 
 # ==========================================
 # 1. Preparation
 # ==========================================
 echo "🚀 Starting security scan..."
-
-# Create the specific directory structure Trivy expects
-# We need a 'db' folder inside our cache directory
 mkdir -p "$CACHE_DIR/db"
 
-# Reset output file
 echo "Scan Report - $(date)" > "$OUTPUT_FILE"
 echo "📂 Working Directory: $WORK_DIR"
-echo "📄 Report will be saved to: $OUTPUT_FILE"
 
 # ==========================================
-# 2. Manual DB Download (Wget Method)
+# 2. Smart DB Download (Auto-Switching)
 # ==========================================
 echo "📥 Downloading DB tarball..."
 
-# Download to a temporary path inside WORK_DIR
-wget --no-check-certificate -q --show-progress -O "$WORK_DIR/db_temp.tar.gz" "$DB_URL"
+DOWNLOAD_SUCCESS=false
 
-if [ $? -ne 0 ]; then
-    echo "❌ Download failed. Check network."
+for url in "${MIRRORS[@]}"; do
+    echo "Trying mirror: $url ..."
+    
+    # -T 15: Timeout after 15 seconds
+    # -t 2: Retry 2 times per mirror
+    wget --no-check-certificate -q --show-progress -T 15 -t 2 -O "$WORK_DIR/db_temp.tar.gz" "$url"
+    
+    if [ $? -eq 0 ]; then
+        echo "✅ Download successful using: $url"
+        DOWNLOAD_SUCCESS=true
+        break
+    else
+        echo "⚠️ Mirror failed or timed out. Switching to next..."
+    fi
+done
+
+if [ "$DOWNLOAD_SUCCESS" = false ]; then
+    echo "❌ All mirrors failed. Please check your network or try again later."
     exit 1
 fi
 
 echo "📦 Extracting DB..."
-# Extract files into the 'db' folder
 tar -xzf "$WORK_DIR/db_temp.tar.gz" -C "$CACHE_DIR/db"
-
-# Cleanup the compressed file
 rm "$WORK_DIR/db_temp.tar.gz"
 
 echo "✅ DB updated successfully."
 
 # ==========================================
-# 3. Batch Scan (Offline Mode)
+# 3. Batch Scan
 # ==========================================
 echo "🔍 Scanning all local images..."
 
@@ -66,7 +73,6 @@ for img in $(docker images -q); do
     echo "[$CURRENT/$TOTAL] Scanning ID: $img ..."
     echo -e "\n\n=== Target: $img ===" >> "$OUTPUT_FILE"
     
-    # Map the host CACHE_DIR to the container's cache location
     docker run --rm \
         -v /var/run/docker.sock:/var/run/docker.sock \
         -v "$CACHE_DIR":/root/.cache/trivy \
