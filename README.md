@@ -7,7 +7,7 @@ curl -fsSL https://hughr.de/ssh | bash
 curl -fsSL https://hughr.de/ssh-syno | bash  
 ```
 
-#Automated Docker Image Security Inspection Script: Trivy Scanning Tool Optimized for Network Environments in China.  
+#Trivy Scanning Tool Optimized for Automated Docker Image Security Inspection Script.
 ```
 curl -fsSL https://hughr.de/trivy | bash
 ```
