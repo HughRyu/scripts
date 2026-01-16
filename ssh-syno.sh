@@ -1,7 +1,7 @@
 #!/bin/bash
 # ==============================================================================
 # Title:        Synology SSH Key Setup (Hardcoded Version)
-# Description:  Optimized for DSM 6/7. Fixed for restricted network environments.
+# Description:  Optimized for DSM 6/7. 
 # Author:       HughRyu
 # ==============================================================================
 
