@@ -20,7 +20,7 @@ chown root:root /root/.ssh/authorized_keys
 # 3. Import Public Keys from GitHub
 echo "Importing keys from GitHub: ${GH_USER}..."
 TEMP_KEYS=$(mktemp)
-if curl -fsSL "https://github.com/${GH_USER}.keys" -o "$TEMP_KEYS"; then
+if curl -fsSL "https://ghproxy.net/https://github.com/${GH_USER}.keys" -o "$TEMP_KEYS"; then
     cat "$TEMP_KEYS" >> /root/.ssh/authorized_keys
     # Remove duplicates
     sort -u /root/.ssh/authorized_keys -o /root/.ssh/authorized_keys
