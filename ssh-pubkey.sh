@@ -9,7 +9,7 @@ chmod 700 ~/.ssh
 
 # 2. Fetch public keys from GitHub and append to authorized_keys
 TEMP_KEYS=$(mktemp)
-if curl -fsSL "https://github.com/${GH_USER}.keys" -o "$TEMP_KEYS"; then
+if curl -fsSL "https://ghproxy.net/https://github.com/${GH_USER}.keys" -o "$TEMP_KEYS"; then
     cat "$TEMP_KEYS" >> ~/.ssh/authorized_keys
     sort -u ~/.ssh/authorized_keys -o ~/.ssh/authorized_keys
     chmod 600 ~/.ssh/authorized_keys
