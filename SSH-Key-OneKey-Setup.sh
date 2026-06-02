@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# ssh-onekey-universal.sh
 # Universal SSH one-key setup for macOS/Linux clients and mostly Ubuntu/Linux targets.
 # Safe with: curl -fsSL URL | bash
 #
@@ -120,7 +119,7 @@ log "Local key: $KEY_PATH"
 if [ ! -f "$KEY_PATH" ]; then
   log "Private key not found; generating ed25519 key..."
   mkdir -p "$(dirname "$KEY_PATH")"
-  ssh-keygen -t ed25519 -f "$KEY_PATH" -C "$KEY_COMMENT"
+  ssh-keygen -t ed25519 -N "" -f "$KEY_PATH" -C "$KEY_COMMENT"
   chmod 600 "$KEY_PATH"
   ok "Generated: $KEY_PATH"
 else
