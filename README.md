@@ -1,3 +1,7 @@
+# SSH Key OneKey Setup
+```
+curl -fsSL https://hughr.de/ssh-onekey | bash
+```
 #Import my SSH public key to allow passwordless remote access.  
 ```
 curl -fsSL https://hugh.bio/ssh | bash  
