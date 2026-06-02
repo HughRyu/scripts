@@ -100,8 +100,8 @@ need_cmd date
 mkdir -p "$HOME/.ssh"
 chmod 700 "$HOME/.ssh"
 
-[ -n "$HOST_ALIAS" ] || prompt HOST_ALIAS "SSH alias / Host" "dev"
-[ -n "$HOSTNAME" ] || prompt HOSTNAME "Remote hostname/IP" "192.168.199.8"
+[ -n "$HOST_ALIAS" ] || prompt HOST_ALIAS "SSH alias / Host"
+[ -n "$HOSTNAME" ] || prompt HOSTNAME "Remote hostname/IP"
 [ -n "$REMOTE_USER" ] || prompt REMOTE_USER "Remote SSH user" "root"
 [ -n "$SSH_PORT" ] || prompt SSH_PORT "Remote SSH port" "22"
 [ -n "$KEY_PATH" ] || prompt KEY_PATH "Local private key path" "$HOME/.ssh/id_ed25519_${HOST_ALIAS}"
@@ -209,11 +209,6 @@ if [ -d /etc/ssh/sshd_config.d ] && [ "$OS" != "macos" ]; then
 PubkeyAuthentication yes
 AuthorizedKeysFile .ssh/authorized_keys .ssh/authorized_keys2
 EOF
-  if [ "${REMOTE_USER_NAME:-}" = "root" ]; then
-    $SUDO sh -c "cat >> '$DROPIN'" <<EOF
-PermitRootLogin prohibit-password
-EOF
-  fi
   rlog "Wrote sshd drop-in: $DROPIN"
 elif [ -f /etc/ssh/sshd_config ]; then
   CFG=/etc/ssh/sshd_config
@@ -222,7 +217,6 @@ elif [ -f /etc/ssh/sshd_config ]; then
   $SUDO awk '
     /^[#[:space:]]*PubkeyAuthentication[[:space:]]/ { next }
     /^[#[:space:]]*AuthorizedKeysFile[[:space:]]/ { next }
-    /^[#[:space:]]*PermitRootLogin[[:space:]]/ { next }
     { print }
   ' "$CFG" > "$TMP"
   {
@@ -230,9 +224,6 @@ elif [ -f /etc/ssh/sshd_config ]; then
     printf '\n# Managed by ssh-onekey-universal.sh\n'
     printf 'PubkeyAuthentication yes\n'
     printf 'AuthorizedKeysFile .ssh/authorized_keys .ssh/authorized_keys2\n'
-    if [ "${REMOTE_USER_NAME:-}" = "root" ]; then
-      printf 'PermitRootLogin prohibit-password\n'
-    fi
   } | $SUDO tee "$CFG" >/dev/null
   rm -f "$TMP"
   rlog "Updated sshd_config: $CFG"
