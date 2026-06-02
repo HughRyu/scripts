@@ -3,20 +3,6 @@ set -euo pipefail
 
 # ssh-onekey-setup.sh
 # 一键配置当前机器通过 SSH key 免密访问目标 Ubuntu/Linux 服务器。
-#
-# 它会做这些事：
-# 1. 在当前机器创建/复用 SSH 私钥
-# 2. 把对应公钥写入目标服务器用户的 ~/.ssh/authorized_keys
-# 3. 如果目标端有 root/sudo 权限，自动启用 sshd 公钥登录配置
-# 4. 写入当前机器 ~/.ssh/config 的 Host 别名
-# 5. 测试 ssh <alias> 是否免密成功
-#
-# 交互使用：
-#   curl -fsSL https://raw.githubusercontent.com/YOUR_USER/YOUR_REPO/main/ssh-onekey-setup.sh | bash
-#
-# 非交互使用：
-#   curl -fsSL https://raw.githubusercontent.com/YOUR_USER/YOUR_REPO/main/ssh-onekey-setup.sh | bash -s -- \
-#     --host dev --hostname 192.168.199.8 --user root --key ~/.ssh/id_ed25519_dev
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -36,18 +22,30 @@ need_cmd() {
   fi
 }
 
+read_tty() {
+  local prompt_text="$1"
+  local value=""
+  if [ -r /dev/tty ]; then
+    read -r -p "$prompt_text" value </dev/tty
+  else
+    err "当前环境没有可用 TTY，无法交互输入。请改用非交互参数。"
+    exit 1
+  fi
+  printf '%s' "$value"
+}
+
 prompt() {
   local var_name="$1"
   local label="$2"
   local default_value="${3:-}"
-  local value
+  local value=""
 
   if [ -n "$default_value" ]; then
-    read -r -p "$label [$default_value]: " value
+    value="$(read_tty "$label [$default_value]: ")"
     value="${value:-$default_value}"
   else
     while true; do
-      read -r -p "$label: " value
+      value="$(read_tty "$label: ")"
       if [ -n "$value" ]; then break; fi
       warn "这个值不能为空。"
     done
@@ -73,10 +71,10 @@ Options:
   --help                      显示帮助
 
 Examples:
-  curl -fsSL https://example.com/ssh-onekey-setup.sh | bash
+  curl -fsSL https://example.com/ssh-onekey | bash
 
-  curl -fsSL https://example.com/ssh-onekey-setup.sh | bash -s -- \
-    --host dev --hostname 192.168.199.8 --user root
+  curl -fsSL https://example.com/ssh-onekey | bash -s -- \
+    --host dev --hostname 192.168.199.8 --user root --key ~/.ssh/id_ed25519_dev
 EOF
 }
 
@@ -121,6 +119,7 @@ need_cmd ssh-keygen
 need_cmd awk
 need_cmd sed
 need_cmd mktemp
+need_cmd date
 
 mkdir -p "$HOME/.ssh"
 chmod 700 "$HOME/.ssh"
@@ -146,6 +145,7 @@ log "本机私钥: $KEY_PATH"
 
 if [ ! -f "$KEY_PATH" ]; then
   log "未发现私钥，正在生成新的 ed25519 key..."
+  mkdir -p "$(dirname "$KEY_PATH")"
   ssh-keygen -t ed25519 -f "$KEY_PATH" -C "$KEY_COMMENT"
   chmod 600 "$KEY_PATH"
   ok "已生成私钥: $KEY_PATH"
@@ -164,12 +164,13 @@ if [ "$INSTALL_KEY" = "yes" ]; then
   warn "第一次连接通常需要输入一次目标服务器 ${REMOTE_USER} 用户的密码。"
 
   PUB_KEY_CONTENT="$(cat "$PUB_PATH")"
+  ESCAPED_PUB_KEY="$(printf '%s' "$PUB_KEY_CONTENT" | sed "s/'/'\\\\''/g")"
 
   ssh -p "$SSH_PORT" \
     -o PreferredAuthentications=password,keyboard-interactive,publickey \
     -o PubkeyAuthentication=yes \
-    "${REMOTE_USER}@${HOSTNAME}" \
-    "PUB_KEY=$(printf '%s' "$PUB_KEY_CONTENT" | sed "s/'/'\\\\''/g; s/^/'/; s/$/'/") ENABLE_REMOTE_SSHD='$ENABLE_REMOTE_SSHD' REMOTE_USER_NAME='$REMOTE_USER' bash -s" <<'REMOTE_SCRIPT'
+    -tt "${REMOTE_USER}@${HOSTNAME}" \
+    "PUB_KEY='$ESCAPED_PUB_KEY' ENABLE_REMOTE_SSHD='$ENABLE_REMOTE_SSHD' REMOTE_USER_NAME='$REMOTE_USER' bash -s" <<'REMOTE_SCRIPT'
 set -euo pipefail
 
 log_remote() { printf '%s\n' "==> $*"; }
@@ -303,7 +304,7 @@ case "$KEY_PATH" in
 esac
 
 {
-  cat "$tmp_config" | sed -e '${/^$/d;}'
+  sed -e '${/^$/d;}' "$tmp_config"
   printf '\n\nHost %s\n' "$HOST_ALIAS"
   printf '    HostName %s\n' "$HOSTNAME"
   printf '    User %s\n' "$REMOTE_USER"
