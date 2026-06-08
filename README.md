@@ -1,6 +1,16 @@
 # SSH Key OneKey Setup
 ```
 curl -fsSL https://hughr.de/ssh-onekey | bash
+
+curl -fsSL https://hughr.de/ssh-onekey | bash -s -- -p 18122
+
+SSH_ONEKEY_HOST=infosp \
+SSH_ONEKEY_HOSTNAME=172.17.18.18 \
+SSH_ONEKEY_USER=openclaw \
+SSH_ONEKEY_PORT=18122 \
+curl -fsSL https://hughr.de/ssh-onekey | bash
+
+
 ```
 #Import my SSH public key to allow passwordless remote access.  
 ```
