@@ -8,12 +8,12 @@ set -euo pipefail
 # 1) Create/reuse a local SSH key
 # 2) Install the public key into remote ~/.ssh/authorized_keys
 # 3) If remote is root or passwordless sudo is available, enable sshd public-key login
-# 4) Write/update local ~/.ssh/config Host alias
+# 4) Replace any existing local ~/.ssh/config Host stanza with the same alias
 # 5) Test key-only login
 #
 # Examples:
 #   curl -fsSL https://hughr.de/ssh-onekey | bash
-#   curl -fsSL https://hughr.de/ssh-onekey | bash -s -- --host dev --hostname 192.168.199.8 --user root
+#   curl -fsSL https://hughr.de/ssh-onekey | bash -s -- --host dev --hostname 192.168.199.8 --user root -p 2222
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
 log(){ printf "%b\n" "${BLUE}==>${NC} $*"; }
@@ -22,6 +22,36 @@ warn(){ printf "%b\n" "${YELLOW}WARN:${NC} $*"; }
 err(){ printf "%b\n" "${RED}ERROR:${NC} $*" >&2; }
 
 need_cmd(){ command -v "$1" >/dev/null 2>&1 || { err "Missing required command: $1"; exit 1; }; }
+
+TMP_FILES=""
+TMP_BASE="${TMPDIR:-/tmp}"
+
+cleanup(){
+  local f
+  for f in $TMP_FILES; do
+    [ -n "$f" ] && rm -f "$f" 2>/dev/null || true
+  done
+}
+trap cleanup EXIT INT TERM HUP
+
+cleanup_stale_temps(){
+  # Remove files left by a previously interrupted run.  The prefix is specific
+  # to this script, and we only remove files owned by the current user.
+  local user
+  user="$(id -un 2>/dev/null || true)"
+  if [ -n "$user" ]; then
+    find "$TMP_BASE" -maxdepth 1 -type f -name 'ssh-onekey.*' -user "$user" -exec rm -f {} \; 2>/dev/null || true
+  else
+    find "$TMP_BASE" -maxdepth 1 -type f -name 'ssh-onekey.*' -exec rm -f {} \; 2>/dev/null || true
+  fi
+}
+
+make_tmp(){
+  local t
+  t="$(mktemp "${TMP_BASE%/}/ssh-onekey.XXXXXX")"
+  TMP_FILES="${TMP_FILES}${TMP_FILES:+ }$t"
+  printf '%s' "$t"
+}
 
 read_tty(){
   local prompt_text="$1" value=""
@@ -50,7 +80,7 @@ prompt(){
 }
 
 usage(){
-cat <<'EOF'
+cat <<'EOF_USAGE'
 Usage:
   ssh-onekey-universal.sh [options]
 
@@ -58,17 +88,36 @@ Options:
   --host <alias>              Local SSH alias, e.g. dev
   --hostname <ip/host>        Remote host/IP, e.g. 192.168.199.8
   --user <user>               Remote SSH user, e.g. root
-  --port <port>               Remote SSH port, default 22
+  -p, --port <port>           Remote SSH port, default 22
   --key <path>                Local private key path, e.g. ~/.ssh/id_ed25519_dev
   --comment <comment>         New key comment
   --no-install-key            Only write local SSH config; do not install remote key
   --no-enable-remote-sshd     Do not modify remote sshd config
-  --help                      Show help
+  --help, -h                  Show help
 
 Examples:
   curl -fsSL https://hughr.de/ssh-onekey | bash
-  curl -fsSL https://hughr.de/ssh-onekey | bash -s -- --host dev --hostname 192.168.199.8 --user root
-EOF
+  curl -fsSL https://hughr.de/ssh-onekey | bash -s -- --host dev --hostname 192.168.199.8 --user root -p 2222
+EOF_USAGE
+}
+
+require_arg(){
+  [ $# -ge 2 ] && [ -n "${2:-}" ] || { err "Option $1 requires a value."; usage; exit 1; }
+}
+
+validate_port(){
+  case "$1" in ''|*[!0-9]*) err "Invalid SSH port: $1"; exit 1;; esac
+  if [ "$1" -lt 1 ] || [ "$1" -gt 65535 ]; then
+    err "Invalid SSH port: $1 (expected 1-65535)"
+    exit 1
+  fi
+}
+
+validate_host_alias(){
+  case "$1" in
+    ''|*[[:space:]]*) err "Invalid SSH alias: '$1'"; exit 1;;
+    *'*'*|*'?'*) err "SSH alias must be a literal name, not a wildcard pattern: '$1'"; exit 1;;
+  esac
 }
 
 HOST_ALIAS=""; HOSTNAME=""; REMOTE_USER=""; SSH_PORT="22"; KEY_PATH=""; KEY_COMMENT=""
@@ -76,12 +125,12 @@ INSTALL_KEY="yes"; ENABLE_REMOTE_SSHD="yes"
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --host) HOST_ALIAS="${2:-}"; shift 2;;
-    --hostname) HOSTNAME="${2:-}"; shift 2;;
-    --user) REMOTE_USER="${2:-}"; shift 2;;
-    --port) SSH_PORT="${2:-}"; shift 2;;
-    --key) KEY_PATH="${2:-}"; shift 2;;
-    --comment) KEY_COMMENT="${2:-}"; shift 2;;
+    --host) require_arg "$@"; HOST_ALIAS="$2"; shift 2;;
+    --hostname) require_arg "$@"; HOSTNAME="$2"; shift 2;;
+    --user) require_arg "$@"; REMOTE_USER="$2"; shift 2;;
+    -p|--port) require_arg "$@"; SSH_PORT="$2"; shift 2;;
+    --key) require_arg "$@"; KEY_PATH="$2"; shift 2;;
+    --comment) require_arg "$@"; KEY_COMMENT="$2"; shift 2;;
     --no-install-key) INSTALL_KEY="no"; shift;;
     --no-enable-remote-sshd) ENABLE_REMOTE_SSHD="no"; shift;;
     --help|-h) usage; exit 0;;
@@ -95,6 +144,9 @@ need_cmd awk
 need_cmd sed
 need_cmd mktemp
 need_cmd date
+need_cmd find
+
+cleanup_stale_temps
 
 mkdir -p "$HOME/.ssh"
 chmod 700 "$HOME/.ssh"
@@ -104,6 +156,9 @@ chmod 700 "$HOME/.ssh"
 [ -n "$REMOTE_USER" ] || prompt REMOTE_USER "Remote SSH user" "root"
 [ -n "$SSH_PORT" ] || prompt SSH_PORT "Remote SSH port" "22"
 [ -n "$KEY_PATH" ] || prompt KEY_PATH "Local private key path" "$HOME/.ssh/id_ed25519_${HOST_ALIAS}"
+
+validate_host_alias "$HOST_ALIAS"
+validate_port "$SSH_PORT"
 
 KEY_PATH="${KEY_PATH/#\~/$HOME}"
 PUB_PATH="${KEY_PATH}.pub"
@@ -147,13 +202,46 @@ set -euo pipefail
 rlog(){ printf '%s\n' "==> $*"; }
 rwarn(){ printf '%s\n' "WARN: $*"; }
 
-OS="unknown"
-if [ -s /etc/os-release ]; then
+REMOTE_TMP_FILES=""
+REMOTE_TMP_BASE="${TMPDIR:-/tmp}"
+remote_cleanup(){
+  local f
+  for f in $REMOTE_TMP_FILES; do
+    [ -n "$f" ] && rm -f "$f" 2>/dev/null || true
+  done
+}
+trap remote_cleanup EXIT INT TERM HUP
+
+remote_cleanup_stale(){
+  local user
+  user="$(id -un 2>/dev/null || true)"
+  if [ -n "$user" ]; then
+    find "$REMOTE_TMP_BASE" -maxdepth 1 -type f -name 'ssh-onekey.remote.*' -user "$user" -exec rm -f {} \; 2>/dev/null || true
+  else
+    find "$REMOTE_TMP_BASE" -maxdepth 1 -type f -name 'ssh-onekey.remote.*' -exec rm -f {} \; 2>/dev/null || true
+  fi
+}
+remote_mktemp(){
+  local t
+  t="$(mktemp "${REMOTE_TMP_BASE%/}/ssh-onekey.remote.XXXXXX")"
+  REMOTE_TMP_FILES="${REMOTE_TMP_FILES}${REMOTE_TMP_FILES:+ }$t"
+  printf '%s' "$t"
+}
+
+OS_FAMILY="unknown"
+OS_ID="unknown"
+UNAME_S="$(uname -s 2>/dev/null || true)"
+case "$UNAME_S" in
+  Darwin) OS_FAMILY="macos"; OS_ID="macos";;
+  Linux) OS_FAMILY="linux";;
+esac
+if [ "$OS_FAMILY" = "linux" ] && [ -s /etc/os-release ]; then
+  # shellcheck disable=SC1091
   . /etc/os-release
-  OS="${ID:-linux}"
-elif [ "$(uname -s 2>/dev/null || true)" = "Darwin" ]; then
-  OS="macos"
+  OS_ID="${ID:-linux}"
 fi
+
+remote_cleanup_stale
 
 mkdir -p "$HOME/.ssh"
 chmod 700 "$HOME/.ssh"
@@ -181,38 +269,50 @@ fi
 
 backup_file(){ [ -f "$1" ] && $SUDO cp "$1" "$1.bak.$(date +%Y%m%d%H%M%S)"; }
 
+sshd_bin(){
+  if command -v sshd >/dev/null 2>&1; then
+    command -v sshd
+  elif [ -x /usr/sbin/sshd ]; then
+    printf '%s\n' /usr/sbin/sshd
+  else
+    return 1
+  fi
+}
+
 restart_sshd(){
-  if command -v systemctl >/dev/null 2>&1; then
+  if [ "$OS_FAMILY" = "macos" ]; then
+    $SUDO systemsetup -setremotelogin on >/dev/null 2>&1 || true
+    $SUDO launchctl kickstart -k system/com.openssh.sshd 2>/dev/null || true
+  elif command -v systemctl >/dev/null 2>&1; then
     $SUDO systemctl restart ssh 2>/dev/null || $SUDO systemctl restart sshd 2>/dev/null || true
   elif command -v service >/dev/null 2>&1; then
     $SUDO service ssh restart 2>/dev/null || $SUDO service sshd restart 2>/dev/null || true
-  elif [ "$OS" = "macos" ]; then
-    $SUDO launchctl kickstart -k system/com.openssh.sshd 2>/dev/null || true
   fi
 }
 
 validate_sshd(){
-  if command -v sshd >/dev/null 2>&1; then
-    $SUDO sshd -t
-  elif [ -x /usr/sbin/sshd ]; then
-    $SUDO /usr/sbin/sshd -t
+  local bin
+  if bin="$(sshd_bin)"; then
+    $SUDO "$bin" -t
   else
     rwarn "sshd command not found; cannot validate config."
   fi
 }
 
-if [ -d /etc/ssh/sshd_config.d ] && [ "$OS" != "macos" ]; then
+write_sshd_dropin(){
   DROPIN=/etc/ssh/sshd_config.d/99-ssh-onekey-pubkey.conf
-  $SUDO sh -c "cat > '$DROPIN'" <<EOF
+  $SUDO sh -c "cat > '$DROPIN'" <<EOF_DROPIN
 # Managed by ssh-onekey-universal.sh
 PubkeyAuthentication yes
 AuthorizedKeysFile .ssh/authorized_keys .ssh/authorized_keys2
-EOF
+EOF_DROPIN
   rlog "Wrote sshd drop-in: $DROPIN"
-elif [ -f /etc/ssh/sshd_config ]; then
+}
+
+update_sshd_config(){
   CFG=/etc/ssh/sshd_config
   backup_file "$CFG"
-  TMP="$(mktemp)"
+  TMP="$(remote_mktemp)"
   $SUDO awk '
     /^[#[:space:]]*PubkeyAuthentication[[:space:]]/ { next }
     /^[#[:space:]]*AuthorizedKeysFile[[:space:]]/ { next }
@@ -224,15 +324,16 @@ elif [ -f /etc/ssh/sshd_config ]; then
     printf 'PubkeyAuthentication yes\n'
     printf 'AuthorizedKeysFile .ssh/authorized_keys .ssh/authorized_keys2\n'
   } | $SUDO tee "$CFG" >/dev/null
-  rm -f "$TMP"
   rlog "Updated sshd_config: $CFG"
+}
+
+if [ "$OS_FAMILY" = "linux" ] && [ -d /etc/ssh/sshd_config.d ]; then
+  write_sshd_dropin
+elif [ -f /etc/ssh/sshd_config ]; then
+  update_sshd_config
 else
   rwarn "No sshd_config found."
   exit 0
-fi
-
-if [ "$OS" = "macos" ] && command -v systemsetup >/dev/null 2>&1; then
-  $SUDO systemsetup -setremotelogin on >/dev/null 2>&1 || true
 fi
 
 validate_sshd
@@ -249,14 +350,18 @@ if [ -f "$CONFIG_FILE" ]; then
   cp "$CONFIG_FILE" "$BACKUP_FILE"
 fi
 
-TMP_CONFIG="$(mktemp)"
+TMP_CONFIG="$(make_tmp)"
 if [ -f "$CONFIG_FILE" ]; then
   awk -v host="$HOST_ALIAS" '
-    BEGIN { skip=0 }
-    /^[[:space:]]*Host[[:space:]]+/ {
-      skip=0
-      for (i=2; i<=NF; i++) if ($i == host) { skip=1; break }
+    function stanza_has_host(    i) {
+      for (i=2; i<=NF; i++) if ($i == host) return 1
+      return 0
     }
+    /^[[:space:]]*Host[[:space:]]+/ {
+      skip = stanza_has_host() ? 1 : 0
+      if (skip) next
+    }
+    /^[[:space:]]*Match[[:space:]]+/ { skip = 0 }
     skip == 0 { print }
   ' "$CONFIG_FILE" > "$TMP_CONFIG"
 else
@@ -266,25 +371,41 @@ fi
 IDENTITY_FOR_CONFIG="$KEY_PATH"
 case "$KEY_PATH" in "$HOME"/*) IDENTITY_FOR_CONFIG="~/${KEY_PATH#"$HOME"/}";; esac
 
+# Remove trailing blank lines, then append the fresh Host stanza. The write is
+# atomic: on Ctrl-C the old ~/.ssh/config remains in place and the temp file is
+# removed by the trap.
+awk 'NF { last=NR } { line[NR]=$0 } END { for (i=1; i<=last; i++) print line[i] }' "$TMP_CONFIG" > "$TMP_CONFIG.trimmed"
+TMP_FILES="${TMP_FILES} $TMP_CONFIG.trimmed"
 {
-  sed -e '${/^$/d;}' "$TMP_CONFIG"
+  cat "$TMP_CONFIG.trimmed"
   printf '\n\nHost %s\n' "$HOST_ALIAS"
   printf '    HostName %s\n' "$HOSTNAME"
   printf '    User %s\n' "$REMOTE_USER"
   printf '    Port %s\n' "$SSH_PORT"
   printf '    IdentityFile %s\n' "$IDENTITY_FOR_CONFIG"
   printf '    IdentitiesOnly yes\n'
-} > "$CONFIG_FILE"
-rm -f "$TMP_CONFIG"
+} > "$TMP_CONFIG.new"
+TMP_FILES="${TMP_FILES} $TMP_CONFIG.new"
+
+# Validate parsability where supported. If ssh -G is unavailable, keep going.
+if ssh -G -F "$TMP_CONFIG.new" "$HOST_ALIAS" >/dev/null 2>&1; then
+  :
+elif ssh -F "$TMP_CONFIG.new" -o BatchMode=yes -G "$HOST_ALIAS" >/dev/null 2>&1; then
+  :
+else
+  warn "Could not pre-validate SSH config with ssh -G; writing anyway."
+fi
+
+mv "$TMP_CONFIG.new" "$CONFIG_FILE"
 chmod 600 "$CONFIG_FILE"
 [ -z "$BACKUP_FILE" ] || ok "Backed up old SSH config: $BACKUP_FILE"
-ok "Wrote local SSH config: $CONFIG_FILE"
+ok "Wrote local SSH config: $CONFIG_FILE (replaced existing Host $HOST_ALIAS if present)"
 
 log "Testing key-only login: ssh $HOST_ALIAS true"
 if ssh -o BatchMode=yes -o ConnectTimeout=8 "$HOST_ALIAS" true >/dev/null 2>&1; then
   ok "Success. Connect with: ssh $HOST_ALIAS"
 else
   warn "Config written, but key-only test failed. Debug with: ssh -vvv $HOST_ALIAS"
-  warn "Common causes: wrong remote user, root login policy, sshd restart failed, authorized_keys permission/path."
+  warn "Common causes: wrong remote user, wrong port, root login policy, sshd restart failed, authorized_keys permission/path."
   exit 2
 fi
