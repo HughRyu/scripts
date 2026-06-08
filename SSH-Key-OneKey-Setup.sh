@@ -14,6 +14,7 @@ set -euo pipefail
 # Examples:
 #   curl -fsSL https://hughr.de/ssh-onekey | bash
 #   curl -fsSL https://hughr.de/ssh-onekey | bash -s -- --host dev --hostname 192.168.199.8 --user root -p 2222
+#   SSH_ONEKEY_PORT=18122 curl -fsSL https://hughr.de/ssh-onekey | bash
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
 log(){ printf "%b\n" "${BLUE}==>${NC} $*"; }
@@ -22,6 +23,27 @@ warn(){ printf "%b\n" "${YELLOW}WARN:${NC} $*"; }
 err(){ printf "%b\n" "${RED}ERROR:${NC} $*" >&2; }
 
 need_cmd(){ command -v "$1" >/dev/null 2>&1 || { err "Missing required command: $1"; exit 1; }; }
+
+SSH_HOSTKEY_OPTS=()
+SSH_CONFIG_HOSTKEY_MODE="accept-new"
+
+init_ssh_hostkey_opts(){
+  local mode="${SSH_ONEKEY_STRICT_HOST_KEY_CHECKING:-accept-new}"
+  if ssh -G -o "StrictHostKeyChecking=$mode" ssh-onekey.invalid >/dev/null 2>&1; then
+    SSH_CONFIG_HOSTKEY_MODE="$mode"
+  elif [ "$mode" = "accept-new" ] && ssh -G -o StrictHostKeyChecking=no ssh-onekey.invalid >/dev/null 2>&1; then
+    SSH_CONFIG_HOSTKEY_MODE="no"
+    warn "This ssh client does not support StrictHostKeyChecking=accept-new; falling back to no."
+  else
+    err "Unsupported StrictHostKeyChecking mode: $mode"
+    exit 1
+  fi
+  SSH_HOSTKEY_OPTS=(
+    -o "StrictHostKeyChecking=$SSH_CONFIG_HOSTKEY_MODE"
+    -o "UserKnownHostsFile=$HOME/.ssh/known_hosts"
+    -o "LogLevel=ERROR"
+  )
+}
 
 TMP_FILES=""
 TMP_BASE="${TMPDIR:-/tmp}"
@@ -95,9 +117,20 @@ Options:
   --no-enable-remote-sshd     Do not modify remote sshd config
   --help, -h                  Show help
 
+Environment shortcuts:
+  SSH_ONEKEY_HOST             Same as --host
+  SSH_ONEKEY_HOSTNAME         Same as --hostname
+  SSH_ONEKEY_USER             Same as --user
+  SSH_ONEKEY_PORT             Same as -p/--port
+  SSH_ONEKEY_KEY              Same as --key
+  SSH_ONEKEY_COMMENT          Same as --comment
+  SSH_ONEKEY_STRICT_HOST_KEY_CHECKING
+                               Host-key mode, default accept-new
+
 Examples:
   curl -fsSL https://hughr.de/ssh-onekey | bash
   curl -fsSL https://hughr.de/ssh-onekey | bash -s -- --host dev --hostname 192.168.199.8 --user root -p 2222
+  SSH_ONEKEY_PORT=18122 curl -fsSL https://hughr.de/ssh-onekey | bash
 EOF_USAGE
 }
 
@@ -120,8 +153,14 @@ validate_host_alias(){
   esac
 }
 
-HOST_ALIAS=""; HOSTNAME=""; REMOTE_USER=""; SSH_PORT="22"; KEY_PATH=""; KEY_COMMENT=""
-INSTALL_KEY="yes"; ENABLE_REMOTE_SSHD="yes"
+HOST_ALIAS="${SSH_ONEKEY_HOST:-${SSH_ONEKEY_ALIAS:-}}"
+HOSTNAME="${SSH_ONEKEY_HOSTNAME:-}"
+REMOTE_USER="${SSH_ONEKEY_USER:-}"
+SSH_PORT="${SSH_ONEKEY_PORT:-22}"
+KEY_PATH="${SSH_ONEKEY_KEY:-}"
+KEY_COMMENT="${SSH_ONEKEY_COMMENT:-}"
+INSTALL_KEY="${SSH_ONEKEY_INSTALL_KEY:-yes}"
+ENABLE_REMOTE_SSHD="${SSH_ONEKEY_ENABLE_REMOTE_SSHD:-yes}"
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -150,6 +189,7 @@ cleanup_stale_temps
 
 mkdir -p "$HOME/.ssh"
 chmod 700 "$HOME/.ssh"
+init_ssh_hostkey_opts
 
 [ -n "$HOST_ALIAS" ] || prompt HOST_ALIAS "SSH alias / Host"
 [ -n "$HOSTNAME" ] || prompt HOSTNAME "Remote hostname/IP"
@@ -193,6 +233,7 @@ if [ "$INSTALL_KEY" = "yes" ]; then
   ESCAPED_PUB_KEY="$(printf '%s' "$PUB_KEY_CONTENT" | sed "s/'/'\\''/g")"
 
   ssh -T -p "$SSH_PORT" \
+    "${SSH_HOSTKEY_OPTS[@]}" \
     -o PreferredAuthentications=password,keyboard-interactive,publickey \
     -o PubkeyAuthentication=yes \
     "${REMOTE_USER}@${HOSTNAME}" \
@@ -384,6 +425,9 @@ TMP_FILES="${TMP_FILES} $TMP_CONFIG.trimmed"
   printf '    Port %s\n' "$SSH_PORT"
   printf '    IdentityFile %s\n' "$IDENTITY_FOR_CONFIG"
   printf '    IdentitiesOnly yes\n'
+  printf '    StrictHostKeyChecking %s\n' "$SSH_CONFIG_HOSTKEY_MODE"
+  printf '    UserKnownHostsFile ~/.ssh/known_hosts\n'
+  printf '    LogLevel ERROR\n'
 } > "$TMP_CONFIG.new"
 TMP_FILES="${TMP_FILES} $TMP_CONFIG.new"
 
@@ -402,7 +446,7 @@ chmod 600 "$CONFIG_FILE"
 ok "Wrote local SSH config: $CONFIG_FILE (replaced existing Host $HOST_ALIAS if present)"
 
 log "Testing key-only login: ssh $HOST_ALIAS true"
-if ssh -o BatchMode=yes -o ConnectTimeout=8 "$HOST_ALIAS" true >/dev/null 2>&1; then
+if ssh "${SSH_HOSTKEY_OPTS[@]}" -o BatchMode=yes -o ConnectTimeout=8 "$HOST_ALIAS" true >/dev/null 2>&1; then
   ok "Success. Connect with: ssh $HOST_ALIAS"
 else
   warn "Config written, but key-only test failed. Debug with: ssh -vvv $HOST_ALIAS"
