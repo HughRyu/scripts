@@ -15,6 +15,7 @@ set -euo pipefail
 #   curl -fsSL https://hughr.de/ssh-onekey | bash
 #   curl -fsSL https://hughr.de/ssh-onekey | bash -s -- --host dev --hostname 192.168.199.8 --user root -p 2222
 #   SSH_ONEKEY_PORT=18122 curl -fsSL https://hughr.de/ssh-onekey | bash
+#   SSH_ONEKEY_KEY_DIR=/root/.ssh SSH_ONEKEY_PORT=18122 curl -fsSL https://hughr.de/ssh-onekey | bash
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
 log(){ printf "%b\n" "${BLUE}==>${NC} $*"; }
@@ -112,6 +113,7 @@ Options:
   --user <user>               Remote SSH user, e.g. root
   -p, --port <port>           Remote SSH port, default 22
   --key <path>                Local private key path, e.g. ~/.ssh/id_ed25519_dev
+  --key-dir <dir>             Directory for default key path, default ~/.ssh
   --comment <comment>         New key comment
   --no-install-key            Only write local SSH config; do not install remote key
   --no-enable-remote-sshd     Do not modify remote sshd config
@@ -123,6 +125,7 @@ Environment shortcuts:
   SSH_ONEKEY_USER             Same as --user
   SSH_ONEKEY_PORT             Same as -p/--port
   SSH_ONEKEY_KEY              Same as --key
+  SSH_ONEKEY_KEY_DIR          Same as --key-dir
   SSH_ONEKEY_COMMENT          Same as --comment
   SSH_ONEKEY_STRICT_HOST_KEY_CHECKING
                                Host-key mode, default accept-new
@@ -131,6 +134,7 @@ Examples:
   curl -fsSL https://hughr.de/ssh-onekey | bash
   curl -fsSL https://hughr.de/ssh-onekey | bash -s -- --host dev --hostname 192.168.199.8 --user root -p 2222
   SSH_ONEKEY_PORT=18122 curl -fsSL https://hughr.de/ssh-onekey | bash
+  SSH_ONEKEY_KEY_DIR=/root/.ssh SSH_ONEKEY_PORT=18122 curl -fsSL https://hughr.de/ssh-onekey | bash
 EOF_USAGE
 }
 
@@ -158,6 +162,7 @@ HOSTNAME="${SSH_ONEKEY_HOSTNAME:-}"
 REMOTE_USER="${SSH_ONEKEY_USER:-}"
 SSH_PORT="${SSH_ONEKEY_PORT:-22}"
 KEY_PATH="${SSH_ONEKEY_KEY:-}"
+KEY_DIR="${SSH_ONEKEY_KEY_DIR:-$HOME/.ssh}"
 KEY_COMMENT="${SSH_ONEKEY_COMMENT:-}"
 INSTALL_KEY="${SSH_ONEKEY_INSTALL_KEY:-yes}"
 ENABLE_REMOTE_SSHD="${SSH_ONEKEY_ENABLE_REMOTE_SSHD:-yes}"
@@ -169,6 +174,7 @@ while [ $# -gt 0 ]; do
     --user) require_arg "$@"; REMOTE_USER="$2"; shift 2;;
     -p|--port) require_arg "$@"; SSH_PORT="$2"; shift 2;;
     --key) require_arg "$@"; KEY_PATH="$2"; shift 2;;
+    --key-dir) require_arg "$@"; KEY_DIR="$2"; shift 2;;
     --comment) require_arg "$@"; KEY_COMMENT="$2"; shift 2;;
     --no-install-key) INSTALL_KEY="no"; shift;;
     --no-enable-remote-sshd) ENABLE_REMOTE_SSHD="no"; shift;;
@@ -195,11 +201,12 @@ init_ssh_hostkey_opts
 [ -n "$HOSTNAME" ] || prompt HOSTNAME "Remote hostname/IP"
 [ -n "$REMOTE_USER" ] || prompt REMOTE_USER "Remote SSH user" "root"
 [ -n "$SSH_PORT" ] || prompt SSH_PORT "Remote SSH port" "22"
-[ -n "$KEY_PATH" ] || prompt KEY_PATH "Local private key path" "$HOME/.ssh/id_ed25519_${HOST_ALIAS}"
 
 validate_host_alias "$HOST_ALIAS"
 validate_port "$SSH_PORT"
 
+KEY_DIR="${KEY_DIR/#\~/$HOME}"
+[ -n "$KEY_PATH" ] || KEY_PATH="${KEY_DIR%/}/id_ed25519_${HOST_ALIAS}"
 KEY_PATH="${KEY_PATH/#\~/$HOME}"
 PUB_PATH="${KEY_PATH}.pub"
 
