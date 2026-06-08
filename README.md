@@ -2,7 +2,8 @@
 ```
 curl -fsSL https://hughr.de/ssh-onekey | bash
 
-curl -fsSL https://hughr.de/ssh-onekey | bash -s -- -p 18122
+curl -fsSL https://hughr.de/ssh-onekey | bash -s -- --key-dir /root/.ssh -p 18122
+
 
 SSH_ONEKEY_HOST=infosp \
 SSH_ONEKEY_HOSTNAME=172.17.18.18 \
