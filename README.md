@@ -26,3 +26,27 @@ curl -fsSL https://hugh.bio/ssh-syno | bash
 ```
 curl -fsSL https://hugh.bio/trivy | bash
 ```
+
+```
+curl -L https://raw.githubusercontent.com/HughRyu/scripts/main/fix-uim-provisioning.sh \
+-o /usr/local/bin/fix-uim-provisioning.sh && \
+chmod +x /usr/local/bin/fix-uim-provisioning.sh && \
+cat > /etc/systemd/system/fix-uim-provisioning.service << 'EOF'
+[Unit]
+Description=Fix UIM Provisioning (SP970 QMI SIM fix)
+After=multi-user.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/fix-uim-provisioning.sh
+
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reexec && \
+systemctl daemon-reload && \
+systemctl enable fix-uim-provisioning && \
+systemctl restart fix-uim-provisioning && \
+echo "✅ 完成：脚本已更新 + 已加入启动项 + 已执行一次"
+``
+```
