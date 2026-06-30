@@ -1,6 +1,6 @@
 # SSH Key OneKey Setup
 ```
-curl -fsSL https://hughr.de/ssh-onekey | bash
+curl -fsSL https://gh-proxy.com/https://hughr.de/ssh-onekey | bash
 
 curl -fsSL https://hughr.de/ssh-onekey | bash -s -- --key-dir /root/.ssh -p 18122
 
@@ -15,20 +15,20 @@ curl -fsSL https://hughr.de/ssh-onekey | bash
 ```
 #Import my SSH public key to allow passwordless remote access.  
 ```
-curl -fsSL https://hugh.bio/ssh | bash  
+curl -fsSL https://hugh.de/ssh | bash  
 ```
 #Import SSH public key to Syno-DSM.  
 ```
-curl -fsSL https://hugh.bio/ssh-syno | bash  
+curl -fsSL https://hugh.de/ssh-syno | bash  
 ```
 
 #Trivy Scanning Tool Optimized for Automated Docker Image Security Inspection Script.
 ```
-curl -fsSL https://hugh.bio/trivy | bash
+curl -fsSL https://hugh.de/trivy | bash
 ```
 
 ```
-curl -L https://raw.githubusercontent.com/HughRyu/scripts/main/fix-uim-provisioning.sh \
+curl -L https://gh-proxy.com/https://raw.githubusercontent.com/HughRyu/scripts/main/fix-uim-provisioning.sh \
 -o /usr/local/bin/fix-uim-provisioning.sh && \
 chmod +x /usr/local/bin/fix-uim-provisioning.sh && \
 cat > /etc/systemd/system/fix-uim-provisioning.service << 'EOF'
