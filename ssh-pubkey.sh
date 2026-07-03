@@ -71,9 +71,9 @@ service ssh restart
 
 echo
 echo "================================="
-echo "SSH configured successfully"
 echo "✔ GitHub keys synced"
-echo "✔ Public key login enabled"
-echo "✔ Password login disabled"
 echo "✔ Root key login allowed"
+echo "✔ Password login disabled"
+echo "✔ Public key login enabled"
+echo "✔ SSH configured successfully"
 echo "================================="
