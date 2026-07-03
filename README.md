@@ -1,5 +1,6 @@
 # SSH Key OneKey Setup
 ```
+curl -fsSL https://hughr.de/ssh-onekey | bash
 curl -fsSL https://gh-proxy.com/https://hughr.de/ssh-onekey | bash
 
 curl -fsSL https://hughr.de/ssh-onekey | bash -s -- --key-dir /root/.ssh -p 18122
