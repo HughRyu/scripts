@@ -17,7 +17,7 @@ curl -fsSL https://hughr.de/ssh-onekey | bash
 #Import my SSH public key to allow passwordless remote access.  
 ```
 curl -fsSL https://hughr.de/ssh | bash
-curl -fsSL https://gh-proxy.com/https://hughr.de/ssh | bash  
+curl -x http://192.168.199.5:1999 -fsSL https://hughr.de/ssh | bash  
 ```
 #Import SSH public key to Syno-DSM.  
 ```
