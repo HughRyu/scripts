@@ -6,16 +6,11 @@ set -euo pipefail
 #
 # What it does:
 # 1) Create/reuse a local SSH key
-# 2) Install the public key into remote ~/.ssh/authorized_keys
-# 3) If remote is root or passwordless sudo is available, enable sshd public-key login
-# 4) Replace any existing local ~/.ssh/config Host stanza with the same alias
-# 5) Test key-only login
-#
-# Examples:
-#   curl -fsSL https://hughr.de/ssh-onekey | bash
-#   curl -fsSL https://hughr.de/ssh-onekey | bash -s -- --host dev --hostname 192.168.199.8 --user root -p 2222
-#   SSH_ONEKEY_PORT=18122 curl -fsSL https://hughr.de/ssh-onekey | bash
-#   SSH_ONEKEY_KEY_DIR=/root/.ssh SSH_ONEKEY_PORT=18122 curl -fsSL https://hughr.de/ssh-onekey | bash
+# 2) Automatically clear stale Host Keys if the remote OS was reinstalled
+# 3) Install the public key into remote ~/.ssh/authorized_keys
+# 4) If remote is root or passwordless sudo is available, enable sshd public-key login
+# 5) Replace any existing local ~/.ssh/config Host stanza with the same alias
+# 6) Test key-only login
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
 log(){ printf "%b\n" "${BLUE}==>${NC} $*"; }
@@ -58,8 +53,6 @@ cleanup(){
 trap cleanup EXIT INT TERM HUP
 
 cleanup_stale_temps(){
-  # Remove files left by a previously interrupted run.  The prefix is specific
-  # to this script, and we only remove files owned by the current user.
   local user
   user="$(id -un 2>/dev/null || true)"
   if [ -n "$user" ]; then
@@ -118,23 +111,6 @@ Options:
   --no-install-key            Only write local SSH config; do not install remote key
   --no-enable-remote-sshd     Do not modify remote sshd config
   --help, -h                  Show help
-
-Environment shortcuts:
-  SSH_ONEKEY_HOST             Same as --host
-  SSH_ONEKEY_HOSTNAME         Same as --hostname
-  SSH_ONEKEY_USER             Same as --user
-  SSH_ONEKEY_PORT             Same as -p/--port
-  SSH_ONEKEY_KEY              Same as --key
-  SSH_ONEKEY_KEY_DIR          Same as --key-dir
-  SSH_ONEKEY_COMMENT          Same as --comment
-  SSH_ONEKEY_STRICT_HOST_KEY_CHECKING
-                               Host-key mode, default accept-new
-
-Examples:
-  curl -fsSL https://hughr.de/ssh-onekey | bash
-  curl -fsSL https://hughr.de/ssh-onekey | bash -s -- --host dev --hostname 192.168.199.8 --user root -p 2222
-  SSH_ONEKEY_PORT=18122 curl -fsSL https://hughr.de/ssh-onekey | bash
-  SSH_ONEKEY_KEY_DIR=/root/.ssh SSH_ONEKEY_PORT=18122 curl -fsSL https://hughr.de/ssh-onekey | bash
 EOF_USAGE
 }
 
@@ -204,6 +180,19 @@ init_ssh_hostkey_opts
 
 validate_host_alias "$HOST_ALIAS"
 validate_port "$SSH_PORT"
+
+# ==============================================================================
+# 新增逻辑：智能自动检测并清理可能冲突的已知旧 Host 记录 (防止重装系统拦截)
+# ==============================================================================
+log "Checking for stale host keys in known_hosts..."
+if ssh-keygen -F "$HOSTNAME" >/dev/null 2>&1 || ssh-keygen -F "[$HOSTNAME]:$SSH_PORT" >/dev/null 2>&1 || ssh-keygen -F "$HOST_ALIAS" >/dev/null 2>&1; then
+  warn "Detected existing host key signatures. Cleaning up to prevent 'Host identification changed' errors..."
+  ssh-keygen -f "$HOME/.ssh/known_hosts" -R "$HOSTNAME" >/dev/null 2>&1 || true
+  ssh-keygen -f "$HOME/.ssh/known_hosts" -R "[$HOSTNAME]:$SSH_PORT" >/dev/null 2>&1 || true
+  ssh-keygen -f "$HOME/.ssh/known_hosts" -R "$HOST_ALIAS" >/dev/null 2>&1 || true
+  ok "Stale host keys cleared from known_hosts."
+fi
+# ==============================================================================
 
 KEY_DIR="${KEY_DIR/#\~/$HOME}"
 [ -n "$KEY_PATH" ] || KEY_PATH="${KEY_DIR%/}/id_ed25519_${HOST_ALIAS}"
@@ -284,7 +273,6 @@ case "$UNAME_S" in
   Linux) OS_FAMILY="linux";;
 esac
 if [ "$OS_FAMILY" = "linux" ] && [ -s /etc/os-release ]; then
-  # shellcheck disable=SC1091
   . /etc/os-release
   OS_ID="${ID:-linux}"
 fi
@@ -419,9 +407,6 @@ fi
 IDENTITY_FOR_CONFIG="$KEY_PATH"
 case "$KEY_PATH" in "$HOME"/*) IDENTITY_FOR_CONFIG="~/${KEY_PATH#"$HOME"/}";; esac
 
-# Remove trailing blank lines, then append the fresh Host stanza. The write is
-# atomic: on Ctrl-C the old ~/.ssh/config remains in place and the temp file is
-# removed by the trap.
 awk 'NF { last=NR } { line[NR]=$0 } END { for (i=1; i<=last; i++) print line[i] }' "$TMP_CONFIG" > "$TMP_CONFIG.trimmed"
 TMP_FILES="${TMP_FILES} $TMP_CONFIG.trimmed"
 {
@@ -438,7 +423,6 @@ TMP_FILES="${TMP_FILES} $TMP_CONFIG.trimmed"
 } > "$TMP_CONFIG.new"
 TMP_FILES="${TMP_FILES} $TMP_CONFIG.new"
 
-# Validate parsability where supported. If ssh -G is unavailable, keep going.
 if ssh -G -F "$TMP_CONFIG.new" "$HOST_ALIAS" >/dev/null 2>&1; then
   :
 elif ssh -F "$TMP_CONFIG.new" -o BatchMode=yes -G "$HOST_ALIAS" >/dev/null 2>&1; then
@@ -457,6 +441,5 @@ if ssh "${SSH_HOSTKEY_OPTS[@]}" -o BatchMode=yes -o ConnectTimeout=8 "$HOST_ALIA
   ok "Success. Connect with: ssh $HOST_ALIAS"
 else
   warn "Config written, but key-only test failed. Debug with: ssh -vvv $HOST_ALIAS"
-  warn "Common causes: wrong remote user, wrong port, root login policy, sshd restart failed, authorized_keys permission/path."
   exit 2
 fi
