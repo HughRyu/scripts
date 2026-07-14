@@ -1,14 +1,4 @@
-# ==========================================
-# Tailscale & 内网路由分流规则集
-# ==========================================
-
-# 1. Tailscale 默认网段
-IP-CIDR,100.64.0.0/10,no-resolve
-
-# 2. 自定义内网宣告网段
-IP-CIDR,192.168.199.0/24,no-resolve
-IP-CIDR,172.17.3.0/24,no-resolve
-IP-CIDR,72.17.9.0/24,no-resolve
-
-# 3. Tailscale MagicDNS 及相关域名
-DOMAIN-SUFFIX,ts.net
+IP-CIDR,100.64.0.0/10,node.tuna-bee.ts.net,no-resolve
+IP-CIDR,192.168.199.0/24,node.tuna-bee.ts.net,no-resolve
+IP-CIDR,172.17.3.0/24,node.tuna-bee.ts.net,no-resolve
+DOMAIN-SUFFIX,ts.net,node.tuna-bee.ts.net
