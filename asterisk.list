@@ -1,0 +1,3 @@
+DOMAIN,asterisk.hugh.fun,DIRECT
+IP-CIDR,36.135.38.33/32,DIRECT,no-resolve
+IP-CIDR,198.18.0.0/15,DIRECT,no-resolve
