@@ -103,5 +103,3 @@ ssh ${HOST_ALIAS}
 EOF
 exit 0
 fi
-
-echo "当前版本仅优化 manual 模式，请使用 -m"
